@@ -28,11 +28,12 @@ sys.path.append(os.path.join(os.path.dirname(TEST_DIR), "bots/machine"))
 
 from machineslib import VirtualMachinesCase  # noqa
 from testlib import nondestructive, skipImage, test_main, wait  # noqa
+from machine_core.constants import TEST_OS_DEFAULT  # noqa
+from machinesxmls import POOL_XML
 
 
 @nondestructive
 class TestMachinesLifecycle(VirtualMachinesCase):
-
     def setUp(self):
         super().setUp()
 
@@ -396,6 +397,195 @@ class TestMachinesLifecycle(VirtualMachinesCase):
         self.allow_browser_errors("Disconnection timed out.")
         self.allow_journal_messages(".* couldn't shutdown fd: Transport endpoint is not connected")
 
+
+class TestMachinesMigration(VirtualMachinesCase):
+    provision = {
+        "machine2": {"address": "10.111.113.1/20", "dns": "10.111.112.100"},
+        "machine1": {"image": TEST_OS_DEFAULT, "address": "10.111.113.2/20", "dns": "10.111.112.100"},
+    }
+
+    def prepare(self, machine1, machine2):
+        machine1.execute("echo '10.111.113.1 machine2' >> /etc/hosts")
+        machine1.execute("echo '10.111.113.2 machine1' >> /etc/hosts")
+        machine2.execute("echo '10.111.113.1 machine2' >> /etc/hosts")
+        machine2.execute("echo '10.111.113.2 machine1' >> /etc/hosts")
+
+        machine1.execute("echo 'migration_host = \"10.111.113.2\"' >> /etc/libvirt/qemu.conf")
+        machine1.execute("systemctl restart libvirtd.service")
+        machine2.execute("echo 'migration_host = \"10.111.113.1\"' >> /etc/libvirt/qemu.conf")
+        machine2.execute("systemctl restart libvirtd.service")
+
+        # setup key authentization
+        machine1.execute("mkdir -p $HOME/.ssh")
+        machine1.execute("chmod 0700 $HOME/.ssh")
+        machine1.execute("ssh-keygen -t rsa -N \"\" -f $HOME/.ssh/id_rsa")
+        machine1.execute("echo 'StrictHostKeyChecking no' > $HOME/.ssh/config")
+        machine1.execute("sshpass -p 'foobar' ssh-copy-id -i $HOME/.ssh/id_rsa.pub admin@machine2")
+        machine2.execute("mkdir -p $HOME/.ssh")
+        machine2.execute("chmod 0700 $HOME/.ssh")
+        machine2.execute("ssh-keygen -t rsa -N \"\" -f $HOME/.ssh/id_rsa")
+        machine2.execute("echo 'StrictHostKeyChecking no' > $HOME/.ssh/config")
+        machine2.execute("sshpass -p 'foobar' ssh-copy-id -i $HOME/.ssh/id_rsa.pub admin@machine1")
+        machine2.execute("usermod --append --groups libvirt admin")
+        machine1.execute("usermod --append --groups libvirt admin")
+
+        xml = POOL_XML.format(path="/var/lib/libvirt/images")
+        machine2.execute("echo \"{0}\" > /tmp/xml && virsh pool-define /tmp/xml && virsh pool-start images".format(xml))
+
+        machine1.execute("systemctl stop firewalld")
+        machine2.execute("systemctl stop firewalld")
+
+    def prepareSharedStorage(self, machine1, machine2):
+        # Set up shared NFS storage available on machine1
+        self.restore_file("/etc/exports")
+        nfs_pool = os.path.join(self.vm_tmpdir, "nfs_pool")
+        mnt_exports = os.path.join(self.vm_tmpdir, "mnt_exports")
+        machine1.execute("mkdir {0} {1} {2} && echo '{2} 10.111.113.2/24(rw,sync,no_root_squash,no_subtree_check,fsid=0)' > /etc/exports".format(self.vm_tmpdir, nfs_pool, mnt_exports))
+        machine1.execute("systemctl restart nfs-server")
+        machine1.execute("virsh pool-define-as nfs-pool --type netfs --target {0} --source-host 10.111.113.2 --source-path {1} && virsh pool-start nfs-pool".format(nfs_pool, mnt_exports))
+        machine1.execute("virsh vol-create-as --pool nfs-pool --name nfs-volume-1 --capacity 1M --format qcow2")
+        machine1.execute("virsh detach-disk --domain subVmTest1 --target vda --live")
+        disk_xml = '''
+<disk type='volume' device='disk'>
+    <driver name='qemu' type='qcow2'/>
+    <source pool='nfs-pool' volume='nfs-volume-1'/>
+    <target dev='vdb' bus='virtio'/>
+</disk>'''
+        machine1.execute("echo \"{0}\" > /tmp/net_disk_xml".format(disk_xml))
+        machine1.execute("virsh attach-device --domain subVmTest1 --file /tmp/net_disk_xml --live")
+
+        machine2.execute("mkdir {0} {1} {2} && echo '{2} 10.111.113.2/24(rw,sync,no_root_squash,no_subtree_check,fsid=0)' > /etc/exports".format(self.vm_tmpdir, nfs_pool, mnt_exports))
+        machine2.execute("systemctl restart nfs-server")
+        machine2.execute("virsh pool-define-as nfs-pool --type netfs --target {0} --source-host 10.111.113.2 --source-path {1} && virsh pool-start nfs-pool".format(nfs_pool, mnt_exports))
+
+    def testSharedStorageMigration(self):
+        b = self.browser
+        machine1 = self.machines['machine1']
+        machine2 = self.machines['machine2']
+
+        self.createVm("subVmTest1")
+        self.login_and_go("/machines")
+        self.prepare(machine1, machine2)
+        self.prepareSharedStorage(machine1, machine2)
+
+        self.waitVmRow("subVmTest1")
+        self.goToVmPage("subVmTest1")
+
+        # live migration
+        self.performAction("subVmTest1", "migrate")
+
+        b.wait_visible("#migrate-modal")
+        b.set_input_text("#dest-uri-input", "qemu+ssh://admin@machine2/system")
+        b.set_checked("#live", True)
+
+        self.assertFalse("subVmTest1" in machine2.execute("virsh list --all"))
+        b.click("#migrate-button")
+        b.wait_not_present("#migrate-modal")
+        self.assertTrue("subVmTest1" in machine2.execute("virsh list --all"))
+        self.assertTrue("running" in machine2.execute("virsh domstate subVmTest1"))
+        # Running VM on destination host has disk with a volume, which is available source
+        # This makes sure that migration with a shared storage worked
+        self.assertTrue("volume='nfs-volume-1'" in machine2.execute("virsh dumpxml subVmTest1"))
+        self.assertTrue("Persistent:     yes" in machine2.execute("virsh dominfo subVmTest1"))
+        machine2.execute("virsh destroy subVmTest1")
+        machine2.execute("virsh undefine subVmTest1")
+
+    def testNonLiveMigration(self):
+        b = self.browser
+        machine1 = self.machines['machine1']
+        machine2 = self.machines['machine2']
+
+        self.createVm("subVmTest1")
+        self.login_and_go("/machines")
+        self.prepare(machine1, machine2)
+        self.prepareSharedStorage(machine1, machine2)
+
+        self.waitVmRow("subVmTest1")
+        self.goToVmPage("subVmTest1")
+
+        self.performAction("subVmTest1", "migrate")
+
+        b.wait_visible("#migrate-modal")
+        b.set_input_text("#dest-uri-input", "qemu+ssh://admin@machine2/system")
+        b.set_checked("#live", False)
+
+        self.assertFalse("subVmTest1" in machine2.execute("virsh list --all"))
+        b.click("#migrate-button")
+        b.wait_not_present("#migrate-modal")
+        self.assertTrue("subVmTest1" in machine2.execute("virsh list --all"))
+        # Non-live migration will migrate only offline VM config
+        self.assertTrue("shut off" in machine2.execute("virsh domstate subVmTest1"))
+        # Running VM on destination host has disk with a volume, which is available source
+        # This makes sure that migration with a shared storage worked
+        self.assertTrue("volume='nfs-volume-1'" in machine2.execute("virsh dumpxml subVmTest1"))
+        self.assertTrue("Persistent:     yes" in machine2.execute("virsh dominfo subVmTest1"))
+        machine2.execute("virsh undefine subVmTest1")
+
+    def testCopyStorageMigration(self):
+        b = self.browser
+        machine1 = self.machines['machine1']
+        machine2 = self.machines['machine2']
+
+        self.createVm("subVmTest1")
+        self.login_and_go("/machines")
+        self.prepare(machine1, machine2)
+
+        self.waitVmRow("subVmTest1")
+        self.goToVmPage("subVmTest1")
+
+        self.performAction("subVmTest1", "migrate")
+
+        b.wait_visible("#migrate-modal")
+        b.set_input_text("#dest-uri-input", "qemu+ssh://admin@machine2/system")
+        b.set_checked("#live", True)
+        b.click("#storage #copy")
+
+        self.assertFalse("subVmTest1" in machine2.execute("virsh list --all"))
+        b.click("#migrate-button")
+        b.wait_not_present("#migrate-modal")
+        self.assertTrue("subVmTest1" in machine2.execute("virsh list --all"))
+        self.assertTrue("running" in machine2.execute("virsh domstate subVmTest1"))
+        self.assertTrue("Persistent:     yes" in machine2.execute("virsh dominfo subVmTest1"))
+        machine2.execute("virsh destroy subVmTest1")
+        machine2.execute("virsh undefine subVmTest1")
+
+    def testMoveTemporarilyMigration(self):
+        b = self.browser
+        machine1 = self.machines['machine1']
+        machine2 = self.machines['machine2']
+
+        self.createVm("subVmTest1")
+        self.login_and_go("/machines")
+        self.prepare(machine1, machine2)
+        self.prepareSharedStorage(machine1, machine2)
+
+        self.waitVmRow("subVmTest1")
+        self.goToVmPage("subVmTest1")
+
+        # non-live migration
+        self.performAction("subVmTest1", "migrate")
+
+        b.wait_visible("#migrate-modal")
+        b.set_input_text("#dest-uri-input", "qemu+ssh://admin@machine2/system")
+        b.set_checked("#live", False)
+        b.wait_not_present("#temporary")
+        b.set_checked("#live", True)
+        b.set_checked("#temporary", True)
+        b.wait_visible(".pf-c-modal-box__footer .pf-c-alert")
+
+        self.assertFalse("subVmTest1" in machine2.execute("virsh list --all"))
+        b.click("#migrate-button")
+        b.wait_not_present("#migrate-modal")
+        self.assertTrue("subVmTest1" in machine2.execute("virsh list --all"))
+        # Check that VM's are present on both machines
+        self.assertTrue("shut off" in machine1.execute("virsh domstate subVmTest1"))
+        self.assertTrue("running" in machine2.execute("virsh domstate subVmTest1"))
+        # VM on destination should be transient
+        self.assertTrue("Persistent:     no" in machine2.execute("virsh dominfo subVmTest1"))
+        # Running VM on destination host has disk with a volume, which is available source
+        # This makes sure that migration with a shared storage worked
+        self.assertTrue("volume='nfs-volume-1'" in machine2.execute("virsh dumpxml subVmTest1"))
+        machine2.execute("virsh destroy subVmTest1")
 
 if __name__ == '__main__':
     test_main()

@@ -511,7 +511,6 @@ export class AddDiskModalBody extends React.Component {
                 permanent: this.state.permanent,
                 hotplug: this.state.hotplug,
                 vmName: vm.name,
-                vmId: vm.id,
                 cacheMode: this.state.cacheMode,
                 busType: this.state.busType
             })
@@ -542,7 +541,6 @@ export class AddDiskModalBody extends React.Component {
             permanent: this.state.permanent,
             hotplug: this.state.hotplug,
             vmName: vm.name,
-            vmId: vm.id,
             cacheMode: this.state.cacheMode,
             shareable: volume && volume.format === "raw" && isVolumeUsed[this.state.existingVolumeName],
             busType: this.state.busType

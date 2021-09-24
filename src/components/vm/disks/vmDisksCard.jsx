@@ -271,7 +271,12 @@ export class VmDisksCard extends React.Component {
                 columns.push({ title: disk.diskExtras || '' });
 
             const onRemoveDisk = () => {
-                return domainDetachDisk({ connectionName: vm.connectionName, id: vm.id, name: vm.name, target: disk.target, live: vm.state === 'running', persistent: vm.persistent })
+                return domainDetachDisk({
+                    connectionName: vm.connectionName,
+                    name: vm.name, target: disk.target,
+                    live: vm.state === 'running',
+                    persistentDisk: vm.persistent && vm.inactiveXML.disks[disk.target]
+                })
                         .then(() => {
                             domainGet({ connectionName: vm.connectionName, id:vm.id });
                         })

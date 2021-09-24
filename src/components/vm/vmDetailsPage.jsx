@@ -231,7 +231,6 @@ export const VmDetailsPage = ({
                                               memory={vm.memory} />,
                 body: <VmFilesystemsCard connectionName={vm.connectionName}
                                          filesystems={vm.filesystems}
-                                         objPath={vm.id}
                                          vmName={vm.name}
                                          vmState={vm.state} />
             }

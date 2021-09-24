@@ -43,7 +43,7 @@ import "./vmFilesystemsCard.scss";
 
 const _ = cockpit.gettext;
 
-export const VmFilesystemsCard = ({ connectionName, vmName, vmState, objPath, filesystems }) => {
+export const VmFilesystemsCard = ({ connectionName, vmName, vmState, filesystems }) => {
     const [deleteDialogProps, setDeleteDialogProps] = useState(undefined);
     const columnTitles = [_("Source path"), _("Mount tag"), ""];
 
@@ -62,7 +62,7 @@ export const VmFilesystemsCard = ({ connectionName, vmName, vmState, objPath, fi
                                           actionName: _("Remove"),
                                           objectName: filesystemTarget,
                                           onClose: () => setDeleteDialogProps(undefined),
-                                          deleteHandler: () => domainDeleteFilesystem({ connectionName, objPath, target: filesystemTarget }),
+                                          deleteHandler: () => domainDeleteFilesystem({ connectionName, vmName, target: filesystemTarget }),
                                       })}
                                       overlayText={_("Deleting shared directories is possible only when the guest is shut off")} />
             </div>
@@ -143,7 +143,7 @@ const VmFilesystemAddModal = ({ connectionName, memory, objPath, setIsOpen, vmNa
                 memory
             })
                     .then(() => domainCreateFilesystem({
-                        connectionName, objPath,
+                        connectionName, vmName,
                         source, target: mountTag,
                         xattr,
                     }))

@@ -40,7 +40,6 @@ import {
 } from '../actions/store-actions.js';
 import {
     getDiskXML,
-    getFilesystemXML,
     getMemoryBackingXML,
 } from '../libvirt-xml-create.js';
 import {
@@ -65,7 +64,6 @@ import {
     parseDumpxml,
 } from '../libvirt-xml-parse.js';
 import {
-    deleteFilesystem as deleteFilesystemXML,
     updateBootOrder,
     updateDisk,
     updateMaxMemory,
@@ -320,24 +318,22 @@ export function domainCreate({
             });
 }
 
-export function domainCreateFilesystem({ connectionName, objPath, source, target, xattr }) {
-    return call(connectionName, objPath, 'org.libvirt.Domain', 'GetXMLDesc', [Enum.VIR_DOMAIN_XML_INACTIVE], { timeout, type: 'u' })
-            .then(domXml => {
-                const xmlDesc = getFilesystemXML(source, target, xattr);
-                if (!xmlDesc) {
-                    return Promise.reject(new Error("Could not generate filesystem device XML"));
-                } else {
-                    const doc = getDoc(domXml);
-                    const domainElem = doc.firstElementChild;
-                    const deviceElem = domainElem.getElementsByTagName("devices")[0];
-                    const filesystemElem = getElem(xmlDesc);
-                    const s = new XMLSerializer();
+export function domainCreateFilesystem({ connectionName, vmName, source, target, xattr }) {
+    const options = { err: "message" };
+    if (connectionName === "system")
+        options.superuser = "try";
 
-                    deviceElem.appendChild(filesystemElem);
+    let xattrOption = "";
+    if (xattr)
+        xattrOption = ",binary.xattr=on";
 
-                    return call(connectionName, '/org/libvirt/QEMU', 'org.libvirt.Connect', 'DomainDefineXML', [s.serializeToString(doc)], { timeout, type: 's' });
-                }
-            });
+    return cockpit.spawn(
+        [
+            'virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--add-device', '--filesystem',
+            `type=mount,accessmode=passthrough,driver.type=virtiofs,source.dir=${source},target.dir=${target}${xattrOption}`
+        ],
+        options
+    );
 }
 
 export function domainDelete({
@@ -409,15 +405,15 @@ export function domainDelete({
     }
 }
 
-export function domainDeleteFilesystem({ connectionName, objPath, target }) {
-    return call(connectionName, objPath, 'org.libvirt.Domain', 'GetXMLDesc', [Enum.VIR_DOMAIN_XML_INACTIVE], { timeout, type: 'u' })
-            .then(domXml => {
-                const xmlDesc = deleteFilesystemXML(domXml[0], target);
-                if (!xmlDesc)
-                    return Promise.reject(new Error("Could not delete filesystem device"));
-                else
-                    return call(connectionName, '/org/libvirt/QEMU', 'org.libvirt.Connect', 'DomainDefineXML', [xmlDesc], { timeout, type: 's' });
-            });
+export function domainDeleteFilesystem({ connectionName, vmName, target }) {
+    const options = { err: "message" };
+    if (connectionName === "system")
+        options.superuser = "try";
+
+    return cockpit.spawn(
+        ['virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--remove-device', '--filesystem', `target.dir=${target}`],
+        options
+    );
 }
 
 /*

@@ -148,8 +148,8 @@ export function domainAttachIface({ connectionName, vmName, mac, permanent, hotp
     if (hotplug && !permanent)
         define = "--no-define";
 
-    return cockpit.script(
-        `virt-xml -c qemu:///${connectionName} ${vmName} --add-device --network ${macArg}type=${sourceType},source=${source},model=${model} ${define} ${update}`,
+    return cockpit.spawn(
+        ['virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--add-device', '--network', `${macArg}type=${sourceType},source=${source},model=${model}`, define, update],
         options
     );
 }
@@ -467,8 +467,8 @@ export function domainDetachIface({ connectionName, mac, vmName, live, persisten
     if (live && !persistent)
         define = "--no-define";
 
-    return cockpit.script(
-        `virt-xml -c qemu:///${connectionName} ${vmName} --remove-device --network mac=${mac} ${define} ${update}`,
+    return cockpit.spawn(
+        ['virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--remove-device', '--network', `mac=${mac}`, define, update],
         options
     );
 }

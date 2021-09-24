@@ -149,22 +149,18 @@ export function domainAttachHostDevice({ connectionName, vmName, live, dev }) {
 }
 
 export function domainAttachIface({ connectionName, vmName, mac, permanent, hotplug, sourceType, source, model }) {
-    const macArg = mac ? "mac=" + mac + "," : "";
     const options = { err: "message" };
     if (connectionName === "system")
         options.superuser = "try";
 
-    let update = "";
+    const macArg = mac ? `mac=${mac},` : "";
+    const args = ['virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--add-device', '--network', `${macArg}type=${sourceType},source=${source},model=${model}`];
     if (hotplug)
-        update = "--update";
-    let define = "--define";
+        args.push("--update");
     if (hotplug && !permanent)
-        define = "--no-define";
+        args.push("--no-define");
 
-    return cockpit.script(
-        `virt-xml -c qemu:///${connectionName} ${vmName} --add-device --network ${macArg}type=${sourceType},source=${source},model=${model} ${define} ${update}`,
-        options
-    );
+    return cockpit.spawn(args, options);
 }
 
 export function domainChangeInterfaceSettings({
@@ -485,17 +481,13 @@ export function domainDetachIface({ connectionName, mac, vmName, live, persisten
     if (connectionName === "system")
         options.superuser = "try";
 
-    let update = "";
+    const args = ['virt-xml', '-c', `qemu:///${connectionName}`, vmName, '--remove-device', '--network', `mac=${mac}`];
     if (live)
-        update = "--update";
-    let define = "--define";
+        args.push("--update");
     if (live && !persistent)
-        define = "--no-define";
+        args.push("--no-define");
 
-    return cockpit.script(
-        `virt-xml -c qemu:///${connectionName} ${vmName} --remove-device --network mac=${mac} ${define} ${update}`,
-        options
-    );
+    return cockpit.spawn(args, options);
 }
 
 export function domainForceOff({

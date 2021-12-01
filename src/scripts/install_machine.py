@@ -285,6 +285,7 @@ def install_vm(args):
     virsh(args['connectionName'], "undefine", args['vmName'], "--managed-save")
 
     with prepare_virt_install_params(args) as params:
+        print(params)
         try:
             subprocess.check_output(params)
         except subprocess.CalledProcessError as e:

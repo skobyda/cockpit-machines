@@ -20,6 +20,7 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { debounce } from 'throttle-debounce';
+// import * as python from "python.js";
 import {
     Checkbox,
     Form, FormGroup,
@@ -66,6 +67,7 @@ import { PasswordFormFields, password_quality } from 'cockpit-components-passwor
 
 import './createVmDialog.scss';
 import VMS_CONFIG from '../../config.js';
+// import downloadImageScript from "raw-loader!../../script.py";
 
 const _ = cockpit.gettext;
 
@@ -297,7 +299,7 @@ const SourceRow = ({ connectionName, source, sourceType, networks, nodeDevices, 
                 <FormSelect id="source-type"
                             value={sourceType}
                             onChange={value => onValueChanged('sourceType', value)}>
-                    {downloadOSSupported
+                    {downloadOSSupported // TODO create exception for rhel download
                         ? <FormSelectOption value={DOWNLOAD_AN_OS}
                                             label={_("Download an OS")} /> : null}
                     {cloudInitSupported ? <FormSelectOption value={CLOUD_IMAGE}
@@ -349,6 +351,7 @@ class OSRow extends React.Component {
         this.state = {
             typeAheadKey: Math.random(),
             osEntries: osInfoListExt,
+            availableRhels: [],
         };
         this.createValue = os => {
             return ({
@@ -364,6 +367,22 @@ class OSRow extends React.Component {
             });
         };
     }
+
+    /* componentDidMount() {
+        return python.spawn(downloadImageScript, [
+            url + '/' + rhelFileNames[0],
+            "/tmp/rhel-cockpit-image.iso",
+            repoCert,
+            `${certDir}/${serialNum}.pem`,
+            `${certDir}/${serialNum}-key.pem`,
+        ], { err: "message", environ: ['LC_ALL=C.UTF-8'] })
+                .stream(output => {
+                    console.log(output);
+                })
+                .catch(error => {
+                    console.warn("Fetching information about downloadable RHEL images failed: ", error);
+                });
+    } */
 
     render() {
         const { os, onValueChanged, isLoading, validationFailed } = this.props;
@@ -399,6 +418,10 @@ class OSRow extends React.Component {
                     menuAppendTo="parent">
                     {this.state.osEntries.map(os => <SelectOption key={os.shortId}
                                                                   value={this.createValue(os)} />)}
+                    {this.props.availableRhelDownloads.forEach(rhelVersion => {
+                        Object.values(rhelVersion).map(os => <SelectOption key={os.shortId}
+                                                                     value={this.createValue(os)} />);
+                    })}
                 </PFSelect>
             </FormGroup>
         );
@@ -955,7 +978,7 @@ class CreateVmModal extends React.Component {
     }
 
     render() {
-        const { nodeMaxMemory, nodeDevices, networks, osInfoList, loggedUser, storagePools, vms } = this.props;
+        const { nodeMaxMemory, nodeDevices, networks, osInfoList, loggedUser, storagePools, vms, availableRhelDownloads } = this.props;
         const validationFailed = this.state.validate && validateParams({ ...this.state, osInfoList, nodeMaxMemory, vms: vms.filter(vm => vm.connectionName == this.state.connectionName) });
         let startVmCheckbox = (
             <FormGroup fieldId="start-vm" label={_("Immediately start VM")} hasNoPaddingTop>
@@ -985,6 +1008,7 @@ class CreateVmModal extends React.Component {
             unattendedDisabled = !this.state.os || !this.state.os.unattendedInstallable;
         }
 
+        console.log(availableRhelDownloads);
         const dialogBody = (
             <Form isHorizontal>
                 <NameRow
@@ -1015,6 +1039,7 @@ class CreateVmModal extends React.Component {
                     <OSRow
                         os={this.state.os}
                         osInfoList={this.props.osInfoList}
+                        availableRhelDownloads={availableRhelDownloads}
                         onValueChanged={this.onValueChanged}
                         isLoading={this.state.autodetectOSInProgress}
                         validationFailed={validationFailed} />
@@ -1169,6 +1194,7 @@ export class CreateVmAction extends React.Component {
                     downloadOSSupported={this.props.downloadOSSupported}
                     unattendedSupported={this.props.unattendedSupported}
                     unattendedUserLogin={this.props.unattendedUserLogin}
+                    availableRhelDownloads={this.props.availableRhelDownloads}
                     loggedUser={this.props.systemInfo.loggedUser} /> }
             </>
         );

@@ -50,6 +50,84 @@ function canLoggedUserConnectSession (connectionName, loggedUser) {
     return connectionName !== 'session' || loggedUser.name !== 'root';
 }
 
+function setAvailableRhelDownloads(appendAvailableRhelDownloads) {
+    let certDir;
+    let repoCert;
+    let serialNum;
+    let url;
+
+    cockpit.spawn(["subscription-manager", "config"], { superuser: "require", err: "message" })
+            .then(output => {
+                certDir = output.match("entitlementcertdir = \\[(.*)\\]")[1]; // Extracts $path from "entitlementcertdir = [$path]"
+                repoCert = output.match("repo_ca_cert = (.*)")[1]; // Extracts $path from "repo_ca_cert = $path\n"
+
+                return cockpit.spawn(["subscription-manager", "list", "--consumed"], { superuser: "require", err: "message" });
+            })
+            .then(output => {
+                for (const line of output.split(/\r?\n/)) {
+                    if (line.startsWith("Serial:")) {
+                        const words = line.split(" ");
+                        serialNum = words[words.length - 1];
+                        break;
+                    }
+                }
+
+                return cockpit.spawn(["rct", "cat-cert", `${certDir}/${serialNum}.pem`], { superuser: "require", err: "message" });
+            })
+            .then(output => {
+                const availableRhelVersions = [];
+
+                output.split("Content:").forEach(content => { // Parse content for available rhel products
+                    const obj = {};
+                    content.split(/\r?\n/).forEach(line => {
+                        const pair = line.trim().split(": ");
+                        if (pair.length === 2)
+                            obj[pair[0]] = pair[1];
+                    });
+
+                    if (obj.Label && obj.Label.match("rhel-.*-for-.*-baseos-isos"))
+                        availableRhelVersions.push(obj);
+                });
+
+                availableRhelVersions.forEach(availableRhelVersion => {
+                    const releaseVersion = availableRhelVersion.Label.match("rhel-(.*)-for-x86_64-baseos-isos")[1]; // Extracts RHEL version
+                    url = "https://cdn.redhat.com" + availableRhelVersion.URL.replace("$releasever", releaseVersion);
+
+                    return cockpit.spawn([
+                        "curl",
+                        "--cacert",
+                        repoCert,
+                        "--cert",
+                        `${certDir}/${serialNum}.pem`,
+                        "--key",
+                        `${certDir}/${serialNum}-key.pem`,
+                        url
+                    ], { superuser: "require", err: "message" })
+                            .then(output => {
+                                const parser = new DOMParser();
+                                const downloadsElem = parser.parseFromString(output, 'text/html');
+
+                                const HTMLElem = downloadsElem.getElementsByTagName("HTML")[0];
+                                const AElems = HTMLElem.getElementsByTagName("A");
+                                const rhelFileNames = [];
+                                [...AElems].forEach(elem => { // turn HTML collection to an array
+                                    const href = elem.getAttribute("href");
+                                    if (href.endsWith("boot.iso"))
+                                        rhelFileNames.push(href.split('/')[1]);
+                                });
+
+                                const obj = {};
+                                obj[availableRhelVersion.Label] = rhelFileNames;
+
+                                appendAvailableRhelDownloads(obj);
+                            });
+                });
+            })
+            .catch(error => {
+                console.warn("Fetching information about downloadable RHEL images failed: ", error);
+            });
+}
+
 function unknownConnectionName() {
     return cockpit.user()
             .then(loggedUser => {
@@ -121,6 +199,8 @@ class AppActive extends React.Component {
             unattendedSupported: undefined,
             unattendedUserLogin: undefined,
             virtInstallAvailable: undefined,
+            /* available rhel images for download */
+            availableRhelDownloads: [],
         };
         this.onAddErrorNotification = this.onAddErrorNotification.bind(this);
         this.onDismissErrorNotification = this.onDismissErrorNotification.bind(this);
@@ -149,6 +229,14 @@ class AppActive extends React.Component {
                                   () => this.setState({ unattendedSupported: false }));
                 },
                       () => this.setState({ virtInstallAvailable: false }));
+
+        cockpit.spawn(['which', 'subscription-manager'], { err: 'ignore' })
+                .then(() => {
+                    setAvailableRhelDownloads(newEntry => {
+                        console.log([...this.state.availableRhelDownloads, newEntry]);
+                        this.setState({ availableRhelDownloads: [...this.state.availableRhelDownloads, newEntry] });
+                    });
+                });
     }
 
     componentWillUnmount() {
@@ -197,7 +285,7 @@ class AppActive extends React.Component {
 
     render() {
         const { vms, config, storagePools, systemInfo, ui, networks, nodeDevices, interfaces } = store.getState();
-        const { path, cloudInitSupported, downloadOSSupported, unattendedSupported, unattendedUserLogin, virtInstallAvailable } = this.state;
+        const { path, cloudInitSupported, downloadOSSupported, unattendedSupported, unattendedUserLogin, virtInstallAvailable, availableRhelDownloads } = this.state;
         const combinedVms = [...vms, ...dummyVmsFilter(vms, ui.vms)];
         const properties = {
             networks, nodeDevices, nodeMaxMemory: config.nodeMaxMemory,
@@ -208,6 +296,7 @@ class AppActive extends React.Component {
             unattendedSupported,
             unattendedUserLogin,
             virtInstallAvailable,
+            availableRhelDownloads
         };
         const createVmAction = <CreateVmAction {...properties} mode='create' />;
         const importDiskAction = <CreateVmAction {...properties} mode='import' />;

@@ -215,7 +215,7 @@ const NameRow = ({ vmName, onValueChanged, validationFailed }) => {
     );
 };
 
-const SourceRow = ({ connectionName, source, sourceType, networks, nodeDevices, os, osInfoList, cloudInitSupported, downloadOSSupported, onValueChanged, validationFailed }) => {
+const SourceRow = ({ connectionName, source, sourceType, networks, nodeDevices, os, osInfoList, cloudInitSupported, downloadOSSupported, availableRhelDownloads, onValueChanged, validationFailed }) => {
     let installationSource;
     let installationSourceId;
     let installationSourceWarning;
@@ -325,6 +325,7 @@ const SourceRow = ({ connectionName, source, sourceType, networks, nodeDevices, 
                 : <OSRow os={os}
                          osInfoList={osInfoList.filter(os => os.treeInstallable)}
                          onValueChanged={onValueChanged}
+                         availableRhelDownloads={availableRhelDownloads}
                          isLoading={false}
                          validationFailed={validationFailed} />}
         </>
@@ -385,8 +386,12 @@ class OSRow extends React.Component {
     } */
 
     render() {
-        const { os, onValueChanged, isLoading, validationFailed } = this.props;
+        const { os, onValueChanged, isLoading, validationFailed, availableRhelDownloads } = this.props;
         const validationStateOS = validationFailed.os ? 'error' : 'default';
+        availableRhelDownloads.forEach(rhelVersion => {
+            console.log(rhelVersion);
+            Object.values(rhelVersion)[0].map(os => console.log(os));
+        });
 
         return (
             <FormGroup fieldId='os-select'
@@ -418,9 +423,9 @@ class OSRow extends React.Component {
                     menuAppendTo="parent">
                     {this.state.osEntries.map(os => <SelectOption key={os.shortId}
                                                                   value={this.createValue(os)} />)}
-                    {this.props.availableRhelDownloads.forEach(rhelVersion => {
-                        Object.values(rhelVersion).map(os => <SelectOption key={os.shortId}
-                                                                     value={this.createValue(os)} />);
+                    {availableRhelDownloads.forEach(rhelVersion => {
+                        Object.values(rhelVersion)[0].map(os => <SelectOption key={os}
+                                                                     value={os} />);
                     })}
                 </PFSelect>
             </FormGroup>
@@ -1008,7 +1013,6 @@ class CreateVmModal extends React.Component {
             unattendedDisabled = !this.state.os || !this.state.os.unattendedInstallable;
         }
 
-        console.log(availableRhelDownloads);
         const dialogBody = (
             <Form isHorizontal>
                 <NameRow
@@ -1031,6 +1035,7 @@ class CreateVmModal extends React.Component {
                     osInfoList={this.props.osInfoList}
                     cloudInitSupported={this.props.cloudInitSupported}
                     downloadOSSupported={this.props.downloadOSSupported}
+                    availableRhelDownloads={availableRhelDownloads}
                     onValueChanged={this.onValueChanged}
                     validationFailed={validationFailed} />
 

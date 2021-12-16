@@ -30,6 +30,60 @@ export function getDiskElemByTarget(domxml, targetOriginal) {
     }
 }
 
+export function getHostDevElemBySource(domxml, source) {
+    const domainElem = getElem(domxml);
+
+    if (!domainElem) {
+        console.warn(`Can't parse dumpxml, input: "${domainElem}"`);
+        return;
+    }
+
+    const devicesElem = domainElem.getElementsByTagName('devices')[0];
+    const hostdevElems = devicesElem.getElementsByTagName('hostdev');
+
+    if (hostdevElems) {
+        for (let i = 0; i < hostdevElems.length; i++) {
+            const hostdevElem = hostdevElems[i];
+            const type = hostdevElem.getAttribute('type');
+
+            if (type === "usb" && "vendor" in source && "product" in source) {
+                const sourceElem = hostdevElem.getElementsByTagName('source')[0];
+                const addressElem = sourceElem.getElementsByTagName('address')[0];
+                const vendor = sourceElem.getElementsByTagName('vendor')[0].getAttribute('id');
+                const product = sourceElem.getElementsByTagName('product')[0].getAttribute('id');
+
+                if (vendor === source.vendor && product === source.product) {
+                    if (addressElem) {
+                        // If XML does contain bus/device numbers, we have to identify correct hostdev by them
+                        const bus = addressElem.getAttribute('bus');
+                        const device = addressElem.getAttribute('device');
+
+                        if (bus === source.bus && device === source.device)
+                            return new XMLSerializer().serializeToString(hostdevElem);
+                    } else {
+                        // If XML doesn't contain bus/device numbers, we can identify only by vendor/product ids
+                        return new XMLSerializer().serializeToString(hostdevElem);
+                    }
+                }
+            }
+
+            // PCI device
+            if (type === "pci" && "bus" in source && "domain" in source && "slot" in source && "func" in source) {
+                const sourceElem = hostdevElem.getElementsByTagName('source')[0];
+                const addressElem = sourceElem.getElementsByTagName('address')[0];
+
+                const bus = Number(addressElem.getAttribute('bus'));
+                const domain = Number(addressElem.getAttribute('domain'));
+                const slot = Number(addressElem.getAttribute('slot'));
+                const func = Number(addressElem.getAttribute('function'));
+
+                if (domain === source.domain && slot === source.slot && bus === source.bus && func === source.func)
+                    return new XMLSerializer().serializeToString(hostdevElem);
+            }
+        }
+    }
+}
+
 export function getIfaceElemByMac(domxml, mac) {
     const domainElem = getElem(domxml);
 

@@ -52,11 +52,13 @@ import {
     DOMAINSTATE,
     fileDownload,
     getNodeDevSource,
+    getNodeDevSourceObject,
     logDebug,
     units,
 } from '../helpers.js';
 import {
     getDiskElemByTarget,
+    getHostDevElemBySource,
     getDoc,
     getSingleOptionalElem,
     parseDomainDumpxml,
@@ -443,6 +445,30 @@ export function domainDetachDisk({
             });
 }
 
+export function domainDetachHostDevice({ connectionName, vmName, vmId, live, dev }) {
+    let hostdevXML;
+    let detachFlags = Enum.VIR_DOMAIN_AFFECT_CURRENT;
+    if (live)
+        detachFlags |= Enum.VIR_DOMAIN_AFFECT_LIVE;
+    const source = getNodeDevSourceObject(dev);
+
+    return call(connectionName, vmId, 'org.libvirt.Domain', 'GetXMLDesc', [0], { timeout, type: 'u' })
+            .then(domXml => {
+                const getXMLFlags = Enum.VIR_DOMAIN_XML_INACTIVE;
+                hostdevXML = getHostDevElemBySource(domXml[0], source);
+
+                return call(connectionName, vmId, 'org.libvirt.Domain', 'GetXMLDesc', [getXMLFlags], { timeout, type: 'u' });
+            })
+            .then(domInactiveXml => {
+                const hostdevInactiveXML = getHostDevElemBySource(domInactiveXml[0], source);
+                if (hostdevInactiveXML && !!live)
+                    detachFlags |= Enum.VIR_DOMAIN_AFFECT_CONFIG;
+
+                return call(connectionName, vmId, 'org.libvirt.Domain', 'DetachDevice', [hostdevXML, detachFlags], { timeout, type: 'su' });
+            });
+}
+
+/*
 export function domainDetachHostDevice({ connectionName, vmName, live, dev }) {
     const options = { err: "message" };
     const source = getNodeDevSource(dev);
@@ -456,6 +482,7 @@ export function domainDetachHostDevice({ connectionName, vmName, live, dev }) {
 
     return cockpit.spawn(args, options);
 }
+*/
 
 export function domainDetachIface({ connectionName, mac, vmName, live, persistent }) {
     const options = { err: "message" };

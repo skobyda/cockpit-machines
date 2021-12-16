@@ -31,7 +31,7 @@ import cockpit from 'cockpit';
 import { vmId, findHostNodeDevice, getNodeDevSource } from "../../../helpers.js";
 import { ListingTable } from "cockpit-components-table.jsx";
 import AddHostDev from "./hostDevAdd.jsx";
-import { domainDetachHostDevice } from '../../../libvirtApi/domain.js';
+import { domainGet, domainDetachHostDevice } from '../../../libvirtApi/domain.js';
 import { DeleteResourceButton, DeleteResourceModal } from '../../common/deleteResource.jsx';
 
 const _ = cockpit.gettext;
@@ -223,7 +223,10 @@ export const VmHostDevCard = ({ vm, nodeDevices, config }) => {
                                               objectType: hostdev.type + " host device",
                                               objectName: getNodeDevSource(nodeDev),
                                               onClose: () => setDeleteDialogProps(undefined),
-                                              deleteHandler: () => domainDetachHostDevice({ connectionName: vm.connectionName, vmName: vm.name, live: vm.state !== 'shut off', dev: nodeDev }),
+                                              deleteHandler: () => {
+                                                  return domainDetachHostDevice({ connectionName: vm.connectionName, vmName: vm.name, vmId: vm.id, live: vm.state !== 'shut off', dev: nodeDev })
+                                                          .then(() => domainGet({ connectionName: vm.connectionName, id: vm.id }));
+                                              },
                                           })} />
                 );
 

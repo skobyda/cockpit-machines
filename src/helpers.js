@@ -880,3 +880,25 @@ export function getNodeDevSource(dev) {
 
     return source;
 }
+
+export function getNodeDevSourceObject(dev) {
+    let source;
+
+    if (dev.capability.type === "pci") {
+        const domain = Number(dev.capability.domain);
+        const bus = Number(dev.capability.bus);
+        const slot = Number(dev.capability.slot);
+        const func = Number(dev.capability.function);
+
+        source = { domain, bus, slot, func };
+    } else if (dev.capability.type === "usb_device") {
+        const device = dev.capability.device;
+        const bus = dev.capability.bus;
+        const vendor = dev.capability.vendor.id;
+        const product = dev.capability.product.id;
+
+        source = { vendor, product, bus, device };
+    }
+
+    return source;
+}

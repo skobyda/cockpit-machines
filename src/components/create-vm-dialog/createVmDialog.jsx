@@ -130,12 +130,33 @@ function getSpaceAvailable(storagePools, connectionName) {
     return space;
 }
 
+function getVmName(vmName, connectionName, vms, os) {
+    if (!isEmpty(vmName.trim()))
+        return vmName;
+
+    let retName = connectionName;
+    if (os)
+        retName += '-' + os.shortId;
+
+    const date = new Date();
+    retName += '-' + date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+
+    let tmpRetName = retName;
+    // VM with same name already exists, append a character at the end, starting with 'B'
+    for (let i = 66; vms.some(vm => vm.name === tmpRetName) && i <= 91; i++) {
+        // Could not generate name which doesn't collide with any other VM name
+        if (i === 91)
+            return "";
+        tmpRetName = retName + '-' + String.fromCharCode(i);
+    }
+
+    return tmpRetName;
+}
+
 function validateParams(vmParams) {
     const validationFailed = {};
 
-    if (isEmpty(vmParams.vmName.trim()))
-        validationFailed.vmName = _("Name must not be empty");
-    else if (vmParams.vms.some(vm => vm.name === vmParams.vmName))
+    if (vmParams.vms.some(vm => vm.name === vmParams.vmName))
         validationFailed.vmName = cockpit.format(_("VM $0 already exists"), vmParams.vmName);
 
     if (vmParams.os == undefined)
@@ -195,13 +216,19 @@ function validateParams(vmParams) {
     return validationFailed;
 }
 
-const NameRow = ({ vmName, onValueChanged, validationFailed }) => {
+const NameRow = ({ vmName, suggestedVmName, os, onValueChanged, validationFailed }) => {
     const validationStateName = validationFailed.vmName ? 'error' : 'default';
+
+    let helperText;
+    // Don't show when user inputs any vm name or when we are not able to generate any suggestedVmName from operating system
+    if (isEmpty(vmName.trim()) && (!os || (os && !isEmpty(suggestedVmName.trim()))))
+        helperText = isEmpty(suggestedVmName.trim()) ? _("If blank, a name will be suggested") : _(`If blank, a name will be set to '${suggestedVmName}'`);
 
     return (
         <FormGroup label={_("Name")} fieldId="vm-name"
                    id="vm-name-group"
                    helperTextInvalid={validationFailed.vmName}
+                   helperText={helperText}
                    validated={validationStateName}>
             <TextInput id='vm-name'
                        validated={validationStateName}
@@ -760,6 +787,7 @@ class CreateVmModal extends React.Component {
             storagePool: 'NewVolume',
             storageVolume: '',
             startVm: true,
+            suggestedVmName: '',
             minimumMemory: 0,
             minimumStorage: 0,
 
@@ -892,6 +920,11 @@ class CreateVmModal extends React.Component {
             if (!value || !value.unattendedInstallable)
                 this.onValueChanged('unattendedInstallation', false);
 
+            if (value)
+                stateDelta.suggestedVmName = getVmName(this.state.vmName, this.state.connectionName, this.props.vms, value);
+            else
+                stateDelta.suggestedVmName = '';
+
             this.setState(stateDelta);
             break;
         }
@@ -918,7 +951,7 @@ class CreateVmModal extends React.Component {
 
             const vmParams = {
                 connectionName: this.state.connectionName,
-                vmName: this.state.vmName,
+                vmName: getVmName(this.state.vmName, this.state.connectionName, this.props.vms, this.state.os),
                 source: this.state.source,
                 sourceType: this.state.sourceType,
                 os: this.state.os ? this.state.os.shortId : 'auto',
@@ -991,6 +1024,8 @@ class CreateVmModal extends React.Component {
             <Form isHorizontal>
                 <NameRow
                     vmName={this.state.vmName}
+                    suggestedVmName={this.state.suggestedVmName}
+                    os={this.state.os}
                     onValueChanged={this.onValueChanged}
                     validationFailed={validationFailed} />
 

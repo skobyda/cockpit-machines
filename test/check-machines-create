@@ -790,12 +790,9 @@ vnc_password= "{vnc_passwd}"
             b.wait_not_present("#navbar-oops")
 
             # click the 'X' button to clear the OS input and check there is no Ooops
-            # Also check start VM checkbox was not changed (https://bugzilla.redhat.com/show_bug.cgi?id=2033603)
-            b.set_checked("#start-vm", False)
             b.click("#os-select-group button[aria-label=\"Clear all\"]")
             b.wait_attr("#os-select-group input", "value", "")
             b.wait_not_present("#navbar-oops")
-            self.assertFalse(b.get_checked("#start-vm"))
 
             return self
 
@@ -824,7 +821,10 @@ vnc_password= "{vnc_passwd}"
             return self
 
         def createAndVerifyVirtInstallArgsCloudInit(self):
-            self.browser.click(".pf-c-modal-box__footer button:contains(Create)")
+            if (self.start_vm):
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and run)")
+            else:
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and edit)")
             self.browser.wait_not_present("#create-vm-dialog")
 
             self.goToVmPage(self.name)
@@ -862,7 +862,10 @@ vnc_password= "{vnc_passwd}"
             self.assertIn(f"backing file: {self.location}", self.machine.execute(f"qemu-img info /var/lib/libvirt/images/{self.name}.qcow2"))
 
         def createRespectQemuConfConsoleConfig(self, vnc_listen, spice_listen, vnc_passwd, spice_passwd):
-            self.browser.click(".pf-c-modal-box__footer button:contains(Create)")
+            if (self.start_vm):
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and run)")
+            else:
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and edit)")
             self.browser.wait_not_present("#create-vm-dialog")
             self.browser.wait_text(f"#vm-{self.name}-state", "Shut off")
 
@@ -879,7 +882,10 @@ vnc_password= "{vnc_passwd}"
             self.assertEqual(vnc_passwd, vnc.attrib.get('passwd', None))
 
         def createAndVerifyVirtInstallArgsUnattended(self):
-            self.browser.click(".pf-c-modal-box__footer button:contains(Create)")
+            if (self.start_vm):
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and run)")
+            else:
+                self.browser.click(".pf-c-modal-box__footer button:contains(Create and edit)")
             self.browser.wait_not_present("#create-vm-dialog")
             if self.storage_pool != "NoStorage":
                 self.goToVmPage(self.name)
@@ -967,11 +973,9 @@ vnc_password= "{vnc_passwd}"
                 b.wait_val("#memory-size", self.expected_memory_size)
 
             if self.sourceType == "cloud":
-                b.wait_not_present("#start-vm")
+                b.wait_visible("#create-and-run:disabled")
             else:
-                b.wait_visible("#start-vm")
-                if not self.start_vm:
-                    b.click("#start-vm")  # TODO: fix this, do not assume initial state of the checkbox
+                b.wait_visible("#create-and-run:not(:disabled)")
 
             if (self.connection):
                 b.set_checked(f"#connectionName-{self.connection}", True)
@@ -1007,9 +1011,15 @@ vnc_password= "{vnc_passwd}"
             b = self.browser
 
             if self.sourceType == 'disk_image':
-                b.click(".pf-c-modal-box__footer button:contains(Import)")
+                if (self.start_vm):
+                    b.click(".pf-c-modal-box__footer button:contains(Import and run)")
+                else:
+                    b.click(".pf-c-modal-box__footer button:contains(Import and edit)")
             else:
-                b.click(".pf-c-modal-box__footer button:contains(Create)")
+                if (self.start_vm):
+                    b.click(".pf-c-modal-box__footer button:contains(Create and run)")
+                else:
+                    b.click(".pf-c-modal-box__footer button:contains(Create and edit)")
 
             for error, error_msg in errors.items():
                 error_location = f".pf-c-modal-box__body #{error}-group .pf-c-form__helper-text.pf-m-error"
@@ -1018,9 +1028,11 @@ vnc_password= "{vnc_passwd}"
                     b.wait_in_text(error_location, error_msg)
 
             if self.sourceType == 'disk_image':
-                b.wait_visible(".pf-c-modal-box__footer button:contains(Import):disabled")
+                b.wait_visible(".pf-c-modal-box__footer button:contains(Import and run):disabled")
+                b.wait_visible(".pf-c-modal-box__footer button:contains(Import and edit):disabled")
             else:
-                b.wait_visible(".pf-c-modal-box__footer button:contains(Create):disabled")
+                b.wait_visible(".pf-c-modal-box__footer button:contains(Create and run):disabled")
+                b.wait_visible(".pf-c-modal-box__footer button:contains(Create and edit):disabled")
 
             return self
 
@@ -1037,7 +1049,10 @@ vnc_password= "{vnc_passwd}"
                     raise Error("Retry limit exceeded: None of [%s] is part of the error message '%s'" % (
                         ', '.join(errors), b.text(error_location)))
 
-            b.click(".pf-c-modal-box__footer button:contains(Create)")
+            if (self.start_vm):
+                b.click(".pf-c-modal-box__footer button:contains(Create and run)")
+            else:
+                b.click(".pf-c-modal-box__footer button:contains(Create and edit)")
 
             error_location = ".pf-c-modal-box__footer div.pf-c-alert"
 
@@ -1211,9 +1226,15 @@ vnc_password= "{vnc_passwd}"
         def _create(self, dialog):
             b = self.browser
             if dialog.sourceType == 'disk_image':
-                b.click(".pf-c-modal-box__footer button:contains(Import)")
+                if (dialog.start_vm):
+                    b.click(".pf-c-modal-box__footer button:contains(Import and run)")
+                else:
+                    b.click(".pf-c-modal-box__footer button:contains(Import and edit)")
             else:
-                b.click(".pf-c-modal-box__footer button:contains(Create)")
+                if (dialog.start_vm):
+                    b.click(".pf-c-modal-box__footer button:contains(Create and run)")
+                else:
+                    b.click(".pf-c-modal-box__footer button:contains(Create and edit)")
             init_state = "Creating VM installation" if dialog.start_vm else "Creating VM"
             second_state = "Running" if dialog.start_vm else "Shut off"
 
@@ -1494,7 +1515,7 @@ vnc_password= "{vnc_passwd}"
         dialog.open() \
             .fill() \
 
-        b.click(".pf-c-modal-box__footer button:contains(Create)")
+        b.click(".pf-c-modal-box__footer button:contains(Create and edit)")
         b.wait_not_present("#create-vm-dialog")
 
         wait(lambda: "<cockpit_machines:os_variant>fedora28</cockpit_machines:os_variant>" in m.execute("virsh dumpxml VmNotInstalled"), delay=3)

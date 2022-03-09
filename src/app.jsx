@@ -231,7 +231,7 @@ class AppActive extends React.Component {
                 );
             } else if (vm.createInProgress) {
                 return (
-                    <EmptyStatePanel title={ cockpit.format(_("VM $0 is being created"), cockpit.location.options.name, cockpit.location.options.connection) }
+                    <EmptyStatePanel title={ cockpit.format(_("Creating VM $0"), cockpit.location.options.name, cockpit.location.options.connection) }
                                      action={
                                          <Button variant="link"
                                                  onClick={() => cockpit.location.go(["vms"])}>

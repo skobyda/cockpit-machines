@@ -75,6 +75,8 @@ const CLOUD_IMAGE = 'cloud';
 const DOWNLOAD_AN_OS = 'os';
 const EXISTING_DISK_IMAGE_SOURCE = 'disk_image';
 const PXE_SOURCE = 'pxe';
+const RUN = 1;
+const EDIT = 2;
 
 /* Returns pool's available space
  * Pool needs to be referenced by it's name or path.
@@ -596,21 +598,15 @@ const CloudInitOptionsRow = ({
     userLogin, userPassword,
     validationFailed,
 }) => {
-    const [showOptions, setShowOptions] = useState(false);
-
     return (
         <FormGroup fieldId="cloud-init-checkbox">
-            <Checkbox id="cloud-init-checkbox"
-                      isChecked={showOptions}
-                      onChange={setShowOptions}
-                      label={_("Set cloud init parameters")} />
-            {showOptions && <UsersConfigurationRow rootPassword={rootPassword}
-                                                    rootPasswordLabelInfo={_("Leave the password blank if you do not wish to set a root password")}
-                                                    showUserFields
-                                                    userLogin={userLogin}
-                                                    userPassword={userPassword}
-                                                    validationFailed={validationFailed}
-                                                    onValueChanged={onValueChanged} />}
+            <UsersConfigurationRow rootPassword={rootPassword}
+                                   rootPasswordLabelInfo={_("Leave the password blank if you do not wish to set a root password")}
+                                   showUserFields
+                                   userLogin={userLogin}
+                                   userPassword={userPassword}
+                                   validationFailed={validationFailed}
+                                   onValueChanged={onValueChanged} />}
         </FormGroup>
     );
 };
@@ -772,7 +768,7 @@ class CreateVmModal extends React.Component {
         }
         super(props);
         this.state = {
-            inProgress: false,
+            inProgress: 0,
             validate: false,
             vmName: '',
             connectionName: LIBVIRT_SYSTEM_CONNECTION,
@@ -786,7 +782,6 @@ class CreateVmModal extends React.Component {
             storageSizeUnit: units.GiB.name,
             storagePool: 'NewVolume',
             storageVolume: '',
-            startVm: true,
             suggestedVmName: '',
             minimumMemory: 0,
             minimumStorage: 0,
@@ -874,10 +869,6 @@ class CreateVmModal extends React.Component {
             value = convertToUnit(this.state.storageSize, this.state.storageSizeUnit, value);
             this.setState({ [key]: value });
             break;
-        case 'startVm': {
-            this.setState({ [key]: value });
-            break;
-        }
         case 'connectionName':
             this.setState({ [key]: value });
             if (this.state.sourceType == PXE_SOURCE && value == LIBVIRT_SESSION_CONNECTION) {
@@ -937,17 +928,17 @@ class CreateVmModal extends React.Component {
         }
     }
 
-    onCreateClicked() {
+    onCreateClicked(startVm) {
         const { storagePools, close, onAddErrorNotification, osInfoList, nodeMaxMemory, vms } = this.props;
 
         const validation = validateParams({ ...this.state, osInfoList, nodeMaxMemory, vms: vms.filter(vm => vm.connectionName == this.state.connectionName) });
         if (Object.getOwnPropertyNames(validation).length > 0) {
-            this.setState({ inProgress: false, validate: true });
+            this.setState({ inProgress: 0, validate: true });
         } else {
             // leave dialog open to show immediate errors from the backend
             // close the dialog after VMS_CONFIG.LeaveCreateVmDialogVisibleAfterSubmit
             // then show errors in the notification area
-            this.setState({ inProgress: true, validate: false });
+            this.setState({ inProgress: startVm ? RUN : EDIT, validate: false });
 
             const vmParams = {
                 connectionName: this.state.connectionName,
@@ -960,14 +951,14 @@ class CreateVmModal extends React.Component {
                 storageSize: convertToUnit(this.state.storageSize, this.state.storageSizeUnit, units.GiB),
                 storagePool: this.state.storagePool,
                 storageVolume: this.state.storageVolume,
-                startVm: this.state.unattendedInstallation || this.state.startVm,
                 unattended: this.state.unattendedInstallation,
                 userPassword: this.state.userPassword,
                 rootPassword: this.state.rootPassword,
                 userLogin: this.state.userLogin,
+                startVm
             };
 
-            return timeoutedPromise(
+            const promise = timeoutedPromise(
                 domainCreate(vmParams),
                 VMS_CONFIG.LeaveCreateVmDialogVisibleAfterSubmit,
                 () => {
@@ -986,29 +977,23 @@ class CreateVmModal extends React.Component {
                     });
                     close();
                 });
+
+            if (startVm) {
+                return promise;
+            } else {
+                return promise
+                        .then(() => cockpit.location.go(["vm"], {
+                            ...cockpit.location.options,
+                            name: getVmName(this.state.vmName, this.state.connectionName, vms this.state.os),
+                            connection: this.state.connectionName
+                        }));
+            }
         }
     }
 
     render() {
         const { nodeMaxMemory, nodeDevices, networks, osInfoList, loggedUser, storagePools, vms } = this.props;
         const validationFailed = this.state.validate && validateParams({ ...this.state, osInfoList, nodeMaxMemory, vms: vms.filter(vm => vm.connectionName == this.state.connectionName) });
-        let startVmCheckbox = (
-            <FormGroup fieldId="start-vm" label={_("Immediately start VM")} hasNoPaddingTop>
-                <Checkbox id="start-vm"
-                    isChecked={this.state.unattendedInstallation || this.state.startVm}
-                    isDisabled={this.state.unattendedInstallation}
-                    onChange={checked => this.onValueChanged('startVm', checked)} />
-            </FormGroup>
-        );
-        if (this.state.unattendedInstallation) {
-            startVmCheckbox = (
-                <Tooltip id='virt-install-not-available-tooltip'
-                         position={TooltipPosition.left}
-                         content={_("Setting the user passwords for unattended installation requires starting the VM when creating it")}>
-                    {startVmCheckbox}
-                </Tooltip>
-            );
-        }
 
         let unattendedDisabled = true;
         if ((this.state.sourceType == URL_SOURCE || this.state.sourceType == LOCAL_INSTALL_MEDIA_SOURCE) && this.state.os) {
@@ -1055,7 +1040,6 @@ class CreateVmModal extends React.Component {
                         onValueChanged={this.onValueChanged}
                         isLoading={this.state.autodetectOSInProgress}
                         validationFailed={validationFailed} />
-
                 </>}
 
                 { this.state.sourceType != EXISTING_DISK_IMAGE_SOURCE &&
@@ -1106,10 +1090,31 @@ class CreateVmModal extends React.Component {
                                       userLogin={this.state.userLogin}
                                       userPassword={this.state.userPassword}
                                       onValueChanged={this.onValueChanged} />}
-
-                {this.state.sourceType !== CLOUD_IMAGE && startVmCheckbox}
             </Form>
         );
+
+        let createAndEdit = (
+            <Button variant="secondary"
+                    key="secondary-button"
+                    id="create-and-edit"
+                    isLoading={this.state.inProgress === EDIT}
+                    isAriaDisabled={
+                        this.state.inProgress === EDIT ||
+                        Object.getOwnPropertyNames(validationFailed).length > 0 ||
+                        this.state.unattendedInstallation
+                    }
+                    onClick={() => this.onCreateClicked(false)}>
+                {this.props.mode == 'create' ? _("Create and edit") : _("Import and edit")}
+            </Button>
+        );
+        if (this.state.unattendedInstallation) {
+            createAndEdit = (
+                <Tooltip id='virt-install-not-available-tooltip'
+                         content={_("Setting the user passwords for unattended installation requires starting the VM when creating it")}>
+                    {createAndEdit}
+                </Tooltip>
+            );
+        }
 
         return (
             <Modal position="top" variant="medium" id='create-vm-dialog' isOpen onClose={ this.props.close }
@@ -1117,11 +1122,17 @@ class CreateVmModal extends React.Component {
                 actions={[
                     <Button variant="primary"
                             key="primary-button"
-                            isLoading={this.state.inProgress}
-                            isDisabled={this.state.inProgress || Object.getOwnPropertyNames(validationFailed).length > 0}
-                            onClick={this.onCreateClicked}>
-                        {this.props.mode == 'create' ? _("Create") : _("Import")}
+                            id="create-and-run"
+                            isLoading={this.state.inProgress === RUN}
+                            isDisabled={
+                                this.state.inProgress === RUN ||
+                                Object.getOwnPropertyNames(validationFailed).length > 0 ||
+                                this.state.sourceType === CLOUD_IMAGE
+                            }
+                            onClick={() => this.onCreateClicked(true)}>
+                        {this.props.mode == 'create' ? _("Create and run") : _("Import and run")}
                     </Button>,
+                    createAndEdit,
                     <Button variant='link'
                             key="cancel-button"
                             className='btn-cancel' onClick={ this.props.close }>

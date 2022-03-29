@@ -229,6 +229,17 @@ class AppActive extends React.Component {
                                      }
                                      icon={ExclamationCircleIcon} />
                 );
+            } else if (vm.createInProgress) {
+                return (
+                    <EmptyStatePanel title={ cockpit.format(_("VM $0 is being created"), cockpit.location.options.name, cockpit.location.options.connection) }
+                                     action={
+                                         <Button variant="link"
+                                                 onClick={() => cockpit.location.go(["vms"])}>
+                                             {_("Go to VMs list")}
+                                         </Button>
+                                     }
+                                     loading />
+                );
             }
 
             const connectionName = vm.connectionName;

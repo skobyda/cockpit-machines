@@ -21,6 +21,8 @@ import { DesktopViewer } from '@patternfly/react-console';
 
 import cockpit from "cockpit";
 
+import { getConsoleAddress } from "./utils.js";
+
 const _ = cockpit.gettext;
 
 function fmt_to_fragments(fmt) {
@@ -37,6 +39,8 @@ function fmt_to_fragments(fmt) {
 }
 
 const DesktopConsoleDownload = ({ vnc, spice, onDesktopConsole }) => {
+    spice.address = getConsoleAddress(spice);
+    vnc.address = getConsoleAddress(vnc);
     return (
         <DesktopViewer spice={spice}
                        vnc={vnc}

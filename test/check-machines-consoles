@@ -224,5 +224,53 @@ class TestMachinesConsoles(VirtualMachinesCase):
         self.allowed_messages.append("connection unexpectedly closed by peer")
 
 
+class TestMachinesConsolesMultimachine(VirtualMachinesCase):
+    provision = {
+        "machine1": {"address": "10.111.113.1/20", "dns": "10.111.112.100"},
+        "machine2": {"address": "10.111.113.2/20", "dns": "10.111.112.100"},
+    }
+
+    def testInlineConsole(self):
+        b = self.browser
+
+        def add_machine(address):
+            b.switch_to_top()
+            b.go(f"/@{address}")
+
+            b.wait_visible("#machine-troubleshoot")
+            b.click('#machine-troubleshoot')
+            b.wait_visible('#hosts_setup_server_dialog')
+            b.click('#hosts_setup_server_dialog button:contains(Add)')
+            b.wait_in_text('#hosts_setup_server_dialog', "You are connecting to")
+            b.click('#hosts_setup_server_dialog button:contains(Accept key and connect)')
+            b.wait_in_text('#hosts_setup_server_dialog', "Unable to log in")
+            b.set_input_text('#login-custom-password', "foobar")
+            b.click('#hosts_setup_server_dialog button:contains(Log in)')
+
+            b.wait_not_present('#hosts_setup_server_dialog')
+            b.go("/@10.111.113.2/machines")
+            b.enter_page("/machines", host="10.111.113.2")
+
+        m1 = self.machine
+        m2 = self.machines['machine2']
+
+        args = self.createVm("subVmTest1", "vnc", machine=m2)
+
+        self.login_and_go("/machines")
+
+        # Connect to a secondary host
+        add_machine("10.111.113.2")
+        b.become_superuser()
+
+        b.wait_in_text("body", "Virtual machines")
+        self.waitVmRow("subVmTest1")
+
+        b.wait_in_text("#vm-subVmTest1-system-state", "Running")
+        self.goToVmPage("subVmTest1")
+
+        # Check VNC of VM loated at a secondary host works when displayed through a primary host's view
+        b.wait_visible(".pf-c-console__vnc canvas")
+
+
 if __name__ == '__main__':
     test_main()
